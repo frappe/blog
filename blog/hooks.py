@@ -239,3 +239,7 @@ has_comment_permission = {
 website_route_rules = [
 	{"from_route": "/blog/<category>", "to_route": "Blog Post"},
 ]
+
+# Expose method source code through the API discovery endpoints. Safe for open
+# source apps and helps API clients understand what a method does.
+expose_discovery_source = True
