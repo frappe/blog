@@ -60,14 +60,15 @@
 
 		$(".blog-list-content .btn-more").on("click", function() {
 			let $btn = $(this);
-			let args = $.extend(frappe.utils.get_query_params(), {
-				doctype: "Blog Post",
-				category: {{ frappe.form_dict.category|tojson or "''"}},
+			let params = frappe.utils.get_query_params();
+			let args = {
+				category: params.category || params.blog_category || {{ (frappe.form_dict.blog_category or frappe.form_dict.category)|tojson }},
+				blogger: params.blogger,
+				txt: params.txt,
 				limit_start: next_start,
-				pathname: location.pathname,
-			});
+			};
 			$btn.prop("disabled", true);
-			frappe.call('frappe.www.list.get', args)
+			frappe.call("blog.blog.doctype.blog_post.blog_post.get_more_posts", args)
 				.then(r => {
 					var data = r.message;
 					next_start = data.next_start;

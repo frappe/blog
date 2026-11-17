@@ -416,6 +416,26 @@ def get_blog_list(doctype, txt=None, filters=None, limit_start=0, limit_page_len
 	return posts
 
 
+@frappe.whitelist(allow_guest=True)
+def get_more_posts(
+	limit_start: int = 0,
+	category: str | None = None,
+	blogger: str | None = None,
+	txt: str | None = None,
+	limit: int = 20,
+):
+	"""Return the next page of rendered blog cards for the Load More button."""
+	limit_start, limit = cint(limit_start), min(cint(limit) or 20, 100)
+	filters = {k: v for k, v in {"blog_category": category, "blogger": blogger}.items() if v}
+	posts = get_blog_list("Blog Post", txt, filters, limit_start, limit + 1)
+	template = "blog/blog/doctype/blog_post/templates/blog_post_row.html"
+	return {
+		"result": [frappe.render_template(template, {"doc": post}) for post in posts[:limit]],
+		"show_more": len(posts) > limit,
+		"next_start": limit_start + limit,
+	}
+
+
 def send_email(doc, method):
 	if doc.reference_doctype == "Blog Post" and doc.comment_type == "Comment":
 		if doc.reference_name:
