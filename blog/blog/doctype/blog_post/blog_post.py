@@ -416,6 +416,30 @@ def get_blog_list(doctype, txt=None, filters=None, limit_start=0, limit_page_len
 	return posts
 
 
+# Guest access is intended: /blog is public, and this returns only published posts.
+# nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
+@frappe.whitelist(allow_guest=True, methods=["GET"])
+def get_more_posts(
+	limit_start: int = 0,
+	category: str | None = None,
+	blogger: str | None = None,
+	txt: str | None = None,
+):
+	"""Return the next page of rendered blog cards for the Load More button."""
+	page_length = 20
+	limit_start = max(cint(limit_start), 0)
+	filters = {k: v for k, v in {"blog_category": category, "blogger": blogger}.items() if v}
+	posts = get_blog_list("Blog Post", txt, filters, limit_start, page_length + 1)
+	# The template path is a constant, so no request input reaches the template name.
+	template = "blog/blog/doctype/blog_post/templates/blog_post_row.html"
+	return {
+		# nosemgrep: frappe-semgrep-rules.rules.security.frappe-ssti
+		"result": [frappe.render_template(template, {"doc": post}) for post in posts[:page_length]],
+		"show_more": len(posts) > page_length,
+		"next_start": limit_start + page_length,
+	}
+
+
 def send_email(doc, method):
 	if doc.reference_doctype == "Blog Post" and doc.comment_type == "Comment":
 		if doc.reference_name:

@@ -16,7 +16,7 @@ class TestBlogSettings(IntegrationTestCase):
 
 		with set_user("Guest"):
 			self.assertRaises(
-				frappe.ValidationError,
+				frappe.AuthenticationError,
 				add_comment,
 				comment="Good comment with 10 chars",
 				comment_email="test-guest@example.com",
