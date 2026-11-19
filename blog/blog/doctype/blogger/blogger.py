@@ -6,7 +6,6 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import get_user_by_email
 
 
 class Blogger(Document):
@@ -25,17 +24,6 @@ class Blogger(Document):
 		short_name: DF.Data
 		user: DF.Link | None
 	# end: auto-generated types
-
-	def validate(self):
-		if self.user and not frappe.db.exists("User", self.user):
-			# for data import
-			self.user = get_user_by_email(self.user) or (
-				frappe.get_doc(
-					{"doctype": "User", "email": self.user, "first_name": self.user.split("@", 1)[0]}
-				)
-				.insert()
-				.name
-			)
 
 	def on_update(self):
 		"if user is set, then update all older blogs"
