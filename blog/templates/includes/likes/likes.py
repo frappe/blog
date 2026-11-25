@@ -47,15 +47,22 @@ def like(reference_doctype, reference_name, like, route=""):
 	return liked
 
 
+def get_liker():
+	"""How a like stores the session user: Administrator and Guest as themselves, others by email."""
+	user = frappe.session.user
+	return user if user in frappe.STANDARD_USERS else frappe.utils.get_email_address(user)
+
+
 def add_like(reference_doctype, reference_name):
 	user = frappe.session.user
+	liker = get_liker()
 
 	like = frappe.new_doc("Comment")
 	like.comment_type = "Like"
-	like.comment_email = user
+	like.comment_email = liker
 	like.reference_doctype = reference_doctype
 	like.reference_name = reference_name
-	like.content = "Liked by: " + user
+	like.content = "Liked by: " + liker
 	if user == "Guest":
 		like.ip_address = frappe.local.request_ip
 	like.save(ignore_permissions=True)
@@ -67,7 +74,7 @@ def delete_like(reference_doctype, reference_name):
 
 	filters = {
 		"comment_type": "Like",
-		"comment_email": user,
+		"comment_email": get_liker(),
 		"reference_doctype": reference_doctype,
 		"reference_name": reference_name,
 	}
