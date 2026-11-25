@@ -24,6 +24,8 @@ from frappe.website.utils import (
 )
 from frappe.website.website_generator import WebsiteGenerator
 
+from blog.templates.includes.likes.likes import get_liker
+
 
 class BlogPost(WebsiteGenerator):
 	# begin: auto-generated types
@@ -222,7 +224,7 @@ class BlogPost(WebsiteGenerator):
 
 		context.like_count = frappe.db.count("Comment", filters)
 
-		filters["comment_email"] = user
+		filters["comment_email"] = get_liker()
 
 		if user == "Guest":
 			filters["ip_address"] = frappe.local.request_ip
