@@ -5,9 +5,10 @@ on:
     branches:
       - develop
   pull_request:
+  workflow_dispatch:
 
 concurrency:
-  group: develop-blog-${{ github.event.number }}
+  group: develop-blog-${{ github.event.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -18,14 +19,6 @@ jobs:
     name: Server
 
     services:
-      redis-cache:
-        image: redis:alpine
-        ports:
-          - 13000:6379
-      redis-queue:
-        image: redis:alpine
-        ports:
-          - 11000:6379
       mariadb:
         image: mariadb:11.8
         env:
@@ -36,7 +29,7 @@ jobs:
 
     steps:
       - name: Clone
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Find tests
         run: |
@@ -44,20 +37,22 @@ jobs:
           grep -rn "def test" > /dev/null
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.14'
 
       - name: Setup Node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 24
           check-latest: true
 
-      - name: Cache pip
+      - name: Cache pip and uv
         uses: actions/cache@v4
         with:
-          path: ~/.cache/pip
+          path: |
+            ~/.cache/pip
+            ~/.cache/uv
           key: ${{ runner.os }}-pip-${{ hashFiles('**/*requirements.txt', '**/pyproject.toml', '**/setup.py', '**/setup.cfg') }}
           restore-keys: |
             ${{ runner.os }}-pip-
@@ -75,33 +70,61 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-yarn-
 
-      - name: Install MariaDB Client
+      - name: Setup Pilot
         run: |
-          sudo apt update
-          sudo apt-get install mariadb-client
+          set -eo pipefail
+          export PATH="$HOME/pilot/bin:$HOME/.local/bin:$PATH"
+          export UV_PYTHON="${UV_PYTHON:-3.14}"
+          printf '%s\n' "$HOME/pilot/bin" "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Setup
-        run: |
-          pip install frappe-bench
-          bench init --skip-redis-config-generation --skip-assets --python "$(which python)" ~/frappe-bench
+          curl -fsSL https://raw.githubusercontent.com/frappe/pilot/develop/install.sh | sh -s -- --ci
+
+          pilot new frappe-bench --frappe-branch develop
+          pilot -b frappe-bench set-bench-config python "3.14"
+          pilot -b frappe-bench set-bench-config admin_allow_site_to_pilot_communication false
+          pilot -b frappe-bench set-bench-config watch_apps_js false
+          pilot -b frappe-bench set-bench-config mariadb_existing true
+          pilot -b frappe-bench set-bench-config mariadb_host 127.0.0.1
+          pilot -b frappe-bench set-bench-config mariadb_port 3306
+          pilot -b frappe-bench set-bench-config mariadb_admin_user root
+          pilot -b frappe-bench set-bench-config mariadb_password root
+          pilot -b frappe-bench init
+
+          printf '[client]\nskip-ssl\n' > ~/.my.cnf
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL character_set_server = 'utf8mb4'"
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL collation_server = 'utf8mb4_unicode_ci'"
 
       - name: Install
-        working-directory: /home/runner/frappe-bench
+        working-directory: /home/runner/pilot/benches/frappe-bench
         run: |
-          bench get-app blog $GITHUB_WORKSPACE
-          bench setup requirements --dev
-          bench new-site --db-root-password root --admin-password admin test_site
-          bench --site test_site install-app blog
-          bench build
+          set -eo pipefail
+          uv pip install --python env/bin/python -e "apps/frappe[test]"
+          pilot get-app "$GITHUB_WORKSPACE" --branch "$GITHUB_SHA" --skip-assets
+
+          pilot -b frappe-bench start > "$RUNNER_TEMP/pilot.log" 2>&1 &
+          curl --fail --silent --show-error --retry 30 --retry-connrefused --retry-delay 1 \
+            http://127.0.0.1:7000/api/v1/health
+
+          pilot new-site test_site --admin-password admin --apps frappe blog --skip-assets
+          pilot build --apps frappe
+          pilot build --apps blog --force
         env:
           CI: 'Yes'
 
       - name: Run Tests
-        working-directory: /home/runner/frappe-bench
+        working-directory: /home/runner/pilot/benches/frappe-bench
         run: |
-          bench --site test_site set-config allow_tests true
-          bench --site test_site run-tests --app blog
+          pilot -b frappe-bench frappe --site test_site set-config -p allow_tests True
+          pilot -b frappe-bench frappe --site test_site run-tests --app blog
         env:
           TYPE: server
+
+      - name: Show Pilot logs on failure
+        if: ${{ failure() }}
+        run: |
+          cat "$RUNNER_TEMP/pilot.log" || true
+          cat ~/pilot/benches/frappe-bench/logs/*.log || true
+
+      - name: Stop Pilot
+        if: ${{ always() }}
+        run: pilot -b frappe-bench stop || true
